@@ -1,12 +1,57 @@
 import re
-import attr
-import cattr
+import attrs
 from packaging.version import Version
 from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from typing import Optional, List
+from functools import partial
+
+optional = partial(attrs.field, default=None, repr=False)
 
 # Setuptools adds License-File...?
+
+@attrs.frozen()
+class Metadata_1_0:
+    metadata_version: Version = attrs.field(converter=Version)
+    name: str # More restricted from 2.1 onwards
+    version: Version = attrs.field(converter=Version)
+    platform: Optional[List[str]] = optional()
+    summary: Optional[str] = None
+    description: Optional[str] = optional() # Can be in message body from 2.1
+    keywords: Optional[List[str]] = optional()
+    home_page: Optional[str] = optional()
+    author: Optional[str] = optional()
+    author_email: Optional[str] = optional()
+    license: Optional[str] = optional()
+
+
+@attrs.frozen()
+class Metadata_1_1:
+    supported_platform: Optional[List[str]] = optional()
+    download_url: Optional[str] = optional()
+    classifier: Optional[List[str]] = optional()
+
+@attrs.frozen()
+class Metadata_1_2:
+    maintainer: Optional[str] = optional()
+    maintainer_email: Optional[str] = optional()
+    # requires_dist, requires_external, provides_dist, obsoletes_dist spec relaxed in 2.1
+    requires_dist: Optional[List[Requirement]] = optional(converter=lambda lst: None if lst is None else [Requirement(x) for x in lst])
+    requires_python: Optional[SpecifierSet] = optional(converter=lambda x: None if x is None else SpecifierSet)
+    requires_external: Optional[List[str]] = optional()
+    project_url: Optional[List[str]] = optional()
+    provides_extra: Optional[List[str]] = optional()
+    provides_dist: Optional[List[str]] = optional()
+    obsoletes_dist: Optional[List[str]] = optional()
+
+@attrs.frozen()
+class Metadata_2_1:
+    description_content_type: Optional[str] = optional()
+
+@attrs.frozen()
+class Metadata_2_2:
+    dynamic: Optional[List[str]] = optional()
+
 
 fields = [
     # (name, multiple_use, introduced_in)
@@ -69,39 +114,61 @@ def msg_to_dict(msg):
 
     return result
 
-cattr.register_structure_hook(Version, lambda d, _: Version(d))
-cattr.register_structure_hook(Requirement, lambda d, _: Requirement(d))
-cattr.register_structure_hook(SpecifierSet, lambda d, _: SpecifierSet(d))
-
-@attr.s(frozen=True)
+@attrs.frozen()
 class Metadata:
-    metadata_version: Version = attr.ib(converter=Version)
-    name: str = attr.ib()
-    version: Version = attr.ib(converter=Version)
-    dynamic: Optional[List[str]] = attr.ib(default=None, repr=False)
-    platform: Optional[List[str]] = attr.ib(default=None, repr=False)
-    supported_platform: Optional[List[str]] = attr.ib(default=None, repr=False)
-    summary: Optional[str] = attr.ib(default=None)
-    description: Optional[str] = attr.ib(default=None, repr=False)
-    description_content_type: Optional[str] = attr.ib(default=None, repr=False)
-    keywords: Optional[List[str]] = attr.ib(default=None, repr=False)
-    home_page: Optional[str] = attr.ib(default=None, repr=False)
-    download_url: Optional[str] = attr.ib(default=None, repr=False)
-    author: Optional[str] = attr.ib(default=None, repr=False)
-    author_email: Optional[str] = attr.ib(default=None, repr=False)
-    maintainer: Optional[str] = attr.ib(default=None, repr=False)
-    maintainer_email: Optional[str] = attr.ib(default=None, repr=False)
-    license: Optional[str] = attr.ib(default=None, repr=False)
-    classifier: Optional[List[str]] = attr.ib(default=None, repr=False)
-    requires_dist: Optional[List[Requirement]] = attr.ib(default=None, repr=False, converter=lambda lst: [Requirement(x) for x in lst])
-    requires_python: Optional[SpecifierSet] = attr.ib(default=None, repr=False, converter=SpecifierSet)
-    requires_external: Optional[List[str]] = attr.ib(default=None, repr=False)
-    project_url: Optional[List[str]] = attr.ib(default=None, repr=False)
-    provides_extra: Optional[List[str]] = attr.ib(default=None, repr=False)
-    provides_dist: Optional[List[str]] = attr.ib(default=None, repr=False)
-    obsoletes_dist: Optional[List[str]] = attr.ib(default=None, repr=False)
+    metadata_version: Version = attrs.field(converter=Version)
+    name: str
+    version: Version = attrs.field(converter=Version)
+    dynamic: Optional[List[str]] = optional()
+    platform: Optional[List[str]] = optional()
+    supported_platform: Optional[List[str]] = optional()
+    summary: Optional[str] = None
+    description: Optional[str] = optional()
+    description_content_type: Optional[str] = optional()
+    keywords: Optional[List[str]] = optional()
+    home_page: Optional[str] = optional()
+    download_url: Optional[str] = optional()
+    author: Optional[str] = optional()
+    author_email: Optional[str] = optional()
+    maintainer: Optional[str] = optional()
+    maintainer_email: Optional[str] = optional()
+    license: Optional[str] = optional()
+    classifier: Optional[List[str]] = optional()
+    requires_dist: Optional[List[Requirement]] = optional(converter=lambda lst: None if lst is None else [Requirement(x) for x in lst])
+    requires_python: Optional[SpecifierSet] = optional(converter=lambda x: None if x is None else SpecifierSet)
+    requires_external: Optional[List[str]] = optional()
+    project_url: Optional[List[str]] = optional()
+    provides_extra: Optional[List[str]] = optional()
+    provides_dist: Optional[List[str]] = optional()
+    obsoletes_dist: Optional[List[str]] = optional()
 
     @classmethod
     def from_msg(cls, msg):
         d = msg_to_dict(msg)
-        return cattr.structure(d, cls)
+        return cls(**d)
+
+    @classmethod
+    def from_pyproject(cls, project):
+        """Construct metadata from the [project] section of pyproject.toml"""
+        kw = {}
+        kw["name"] = project["name"]
+        kw["version"] = project.get("version") # TODO: Not optional in metadata!
+        kw["summary"] = project.get("description")
+        readme = project.get("readme")
+        # TODO:
+        # filename, or table with file/text and content-type and charset
+        kw["description"] = ...
+        kw["requires_python"] = project.get("requires-python")
+        license = project.get("license")
+        # TODO:
+        # table with file or text
+        kw["license"] = ...
+        project.get("authors")
+        project.get("maintainers")
+        kw["keywords"] = ",".join(project.get("keywords")) # ish...
+        kw["classifiers"] = project.get("classifiers")
+        if "urls" in project:
+            kw["urls"] = [f"{name}, {url}" for (name, url) in project["urls"].items()]
+        # TODO: Entry points
+        # TODO: dependencies, optional-dependencies
+        # TODO: dynamic
